@@ -1,0 +1,29 @@
+# VE
+venv/
+.venv/
+env/
+
+# editor config
+.vscode/
+*.code-workspace
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# big files
+*.mp4
+*.avi
+*.mov
+*.pt
+*.onnx
+
+# statistics
+data/stats/*.csv
+
+# system files
+.DS_Store
+
+# cache form tests
+.pytest_cache/

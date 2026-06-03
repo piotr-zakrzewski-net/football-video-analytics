@@ -1,0 +1,12 @@
+ultralytics
+opencv-python
+pandas
+shiny
+shinywidgets
+plotly
+scikit-learn
+pytest
+selenium 
+webdriver-manager
+beautifulsoup4
+tqdm
