@@ -24,7 +24,7 @@ Przed uruchomieniem upewnij się, że posiadasz zainstalowanego **Pythona 3.9+**
 
 **1. Klonowanie repozytorium i struktura**
 ```bash
-git clone [!!!LINK!!!]
+git clone https://github.com/Piciooo2k04/football-video-analytics
 cd FootballAnalysis
 ```
 
