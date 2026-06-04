@@ -10,3 +10,4 @@ selenium
 webdriver-manager
 beautifulsoup4
 tqdm
+yt-dlp

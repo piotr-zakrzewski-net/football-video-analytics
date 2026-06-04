@@ -350,7 +350,7 @@ class FlashScoreScraper:
                             data["Best_Odd_2_FT"] = odd_value
 
         except Exception as e:
-            pass
+            print(f"Error extracting Best Odds FT: {e}")
 
         return data
 
@@ -459,12 +459,12 @@ class FlashScoreScraper:
             data["Odds_OU_FT"] = ou_data
 
         except Exception as e:
-            pass
+            print(f"Error extracting OU FT: {e}")
 
         return data
 
     def extract_statistics(self, match_id, data, period="overall", period_name="FT"):
-        """Extrai estatísticas de um período (overall=FT, 1st-half=HT, 2nd-half=2T)"""
+        """Extracts statistics for a given period (overall=FT, 1st-half=HT, 2nd-half=2T)"""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
@@ -475,6 +475,7 @@ class FlashScoreScraper:
         self.driver.get(url)
 
         try:
+            # Wait until the statistics container is loaded on the page
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located(
                     (By.CSS_SELECTOR, "div[data-testid='wcl-statistics']")
@@ -482,36 +483,38 @@ class FlashScoreScraper:
             )
 
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            estatisticas = soup.select("div[data-testid='wcl-statistics']")
+            statistics = soup.select("div[data-testid='wcl-statistics']")
 
             stats_dict = {}
 
-            for estatistica in estatisticas:
-                # Valor Home: div.wcl-homeValue_3Q-7P > span[data-testid='wcl-scores-simple-text-01']
-                home_value_elem = estatistica.select_one(
+            # Iterate through each statistics row (e.g., Ball Possession, Shots on Goal)
+            for stat in statistics:
+                # Home Value Extraction
+                home_value_elem = stat.select_one(
                     "div.wcl-homeValue_3Q-7P span[data-testid='wcl-scores-simple-text-01']"
                 )
 
-                # Valor Away: div.wcl-awayValue_Y-QR1 > span[data-testid='wcl-scores-simple-text-01']
-                away_value_elem = estatistica.select_one(
+                # Away Value Extraction
+                away_value_elem = stat.select_one(
                     "div.wcl-awayValue_Y-QR1 span[data-testid='wcl-scores-simple-text-01']"
                 )
 
-                # Nome da estatística: div[data-testid='wcl-statistics-category'] > span[data-testid='wcl-scores-simple-text-01']
-                nome_estatistica_elem = estatistica.select_one(
+                # Statistic Name Extraction
+                stat_name_elem = stat.select_one(
                     "div[data-testid='wcl-statistics-category'] span[data-testid='wcl-scores-simple-text-01']"
                 )
 
-                if home_value_elem and away_value_elem and nome_estatistica_elem:
-                    valor_home = home_value_elem.text.strip()
-                    valor_away = away_value_elem.text.strip()
-                    nome_estatistica = nome_estatistica_elem.text.strip()
+                if home_value_elem and away_value_elem and stat_name_elem:
+                    home_value = home_value_elem.text.strip()
+                    away_value = away_value_elem.text.strip()
+                    stat_name = stat_name_elem.text.strip()
 
                     def convert_value(value):
-                        # Remove informações extras como "(405/496)" do formato "82% (405/496)"
+                        """Cleans and converts string values into floats or integers"""
                         value_clean = value.split("(")[0].strip()
 
                         try:
+                            # Convert percentages to standard float decimals
                             if value_clean.endswith("%"):
                                 return float(value_clean[:-1]) / 100
                             return float(value_clean)
@@ -520,46 +523,49 @@ class FlashScoreScraper:
                                 return int(value_clean)
                             except ValueError:
                                 return value_clean
-
-                    stats_dict[nome_estatistica] = {
-                        "Home": convert_value(valor_home),
-                        "Away": convert_value(valor_away),
+                    
+                    # Store in dict
+                    stats_dict[stat_name] = {
+                        "Home": convert_value(home_value),
+                        "Away": convert_value(away_value),
                     }
 
+            # If any statistics were found, append them to the main data dictionary
             if stats_dict:
                 data[f"Statistics_{period_name}"] = stats_dict
 
         except Exception as e:
-            print(f"  ✗ Erro stats {period_name}: {e}")
+            print(f"Error extracting stats for {period_name}: {e}")
 
         return data
 
     def extract_statistics_ft(self, match_id, data):
-        """Extrai estatísticas Full Time"""
+        """Extracts Full Time statistics"""
         return self.extract_statistics(
             match_id, data, period="overall", period_name="FT"
         )
 
     def extract_statistics_ht(self, match_id, data):
-        """Extrai estatísticas Half Time (1º tempo)"""
+        """Extracts Half Time statistics (1st half)"""
         return self.extract_statistics(
             match_id, data, period="1st-half", period_name="HT"
         )
 
     def extract_statistics_2t(self, match_id, data):
-        """Extrai estatísticas 2º Tempo"""
+        """Extracts 2nd Half statistics"""
         return self.extract_statistics(
             match_id, data, period="2nd-half", period_name="2T"
         )
 
     def extract_odds_1x2_ht(self, match_id, data):
-        """Extrai odds 1X2 Half Time"""
+        """Extracts 1X2 Half Time odds"""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
         if not home_slug or not away_slug:
             return data
 
+        # Note the specific URL path for 1st-half odds
         url = f"{self.base_url}/match/football/{home_slug}/{away_slug}/odds/1x2-odds/1st-half/?mid={match_id}"
         self.driver.get(url)
 
@@ -589,6 +595,7 @@ class FlashScoreScraper:
                 ).strip()
                 odds_cells = row.select("a.oddsCell__odd")
 
+                # Need exactly at least 3 odds (1, X, 2)
                 if len(odds_cells) < 3:
                     continue
 
@@ -597,7 +604,9 @@ class FlashScoreScraper:
                     odd_x = None
                     odd_2 = None
 
+                    # Iterate strictly over the first three cells
                     for i, cell in enumerate(odds_cells[:3]):
+                        # Ignore cancelled odds (crossed out)
                         if cell.select("span.oddsCell__lineThrough"):
                             continue
 
@@ -605,6 +614,7 @@ class FlashScoreScraper:
                         if odd_span:
                             odd_value = float(odd_span.text.strip().replace(",", "."))
 
+                            # Map based on column index
                             if i == 0:
                                 odd_1 = odd_value
                             elif i == 1:
@@ -622,28 +632,31 @@ class FlashScoreScraper:
                             }
                         )
 
-                except:
+                except Exception:
                     continue
-
+            
+            # Save strictly to the Half Time specific key
             data["Odds_1X2_HT"] = odds_data
 
         except Exception as e:
-            pass  # Erro tratado no nível superior
+            print(f"Error extracting 1X2 HT: {e}")
 
         return data
 
     def extract_odds_btts_ft(self, match_id, data):
-        """Extrai odds Both Teams to Score FT"""
+        """Extracts Both Teams to Score (BTTS) Full Time odds"""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
         if not home_slug or not away_slug:
             return data
 
+        # Specific URL for the BTTS market
         url = f"{self.base_url}/match/football/{home_slug}/{away_slug}/odds/both-teams-to-score/full-time/?mid={match_id}"
         self.driver.get(url)
 
         try:
+            # Wait for the odds table to load
             WebDriverWait(self.driver, 10).until(
                 EC.visibility_of_element_located(
                     (By.CSS_SELECTOR, "div.ui-table.oddsCell__odds")
@@ -669,8 +682,14 @@ class FlashScoreScraper:
                 ).strip()
                 odds_cells = row.select("a.oddsCell__odd")
 
+                # BTTS market always has two options: Yes and No
                 if len(odds_cells) >= 2:
                     try:
+                        # CRITICAL FIX: Skip cancelled odds 
+                        if odds_cells[0].select("span.oddsCell__lineThrough") or \
+                           odds_cells[1].select("span.oddsCell__lineThrough"):
+                            continue
+
                         yes_span = odds_cells[0].select_one("span")
                         no_span = odds_cells[1].select_one("span")
 
@@ -681,28 +700,30 @@ class FlashScoreScraper:
                             btts_data.append(
                                 {"Bookmaker": bookmaker, "Yes": yes_odd, "No": no_odd}
                             )
-                    except:
+                    except Exception:
                         continue
 
             data["Odds_BTTS_FT"] = btts_data
 
         except Exception as e:
-            pass  # Erro tratado no nível superior
+            print(f"Error extracting BTTS FT: {e}")
 
         return data
 
     def extract_odds_dc_ft(self, match_id, data):
-        """Extrai odds Double Chance FT"""
+        """Extracts Double Chance (1X, 12, X2) Full Time odds"""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
         if not home_slug or not away_slug:
             return data
 
+        # Specific URL for the Double Chance market
         url = f"{self.base_url}/match/football/{home_slug}/{away_slug}/odds/double-chance/full-time/?mid={match_id}"
         self.driver.get(url)
 
         try:
+            # Wait for the odds table to load
             WebDriverWait(self.driver, 10).until(
                 EC.visibility_of_element_located(
                     (By.CSS_SELECTOR, "div.ui-table.oddsCell__odds")
@@ -728,6 +749,7 @@ class FlashScoreScraper:
                 ).strip()
                 odds_cells = row.select("a.oddsCell__odd")
 
+                # Double Chance always has 3 options (1X, 12, X2)
                 if len(odds_cells) >= 3:
                     try:
                         odd_1x = None
@@ -735,6 +757,7 @@ class FlashScoreScraper:
                         odd_x2 = None
 
                         for i, cell in enumerate(odds_cells[:3]):
+                            # Ignore cancelled odds
                             if cell.select("span.oddsCell__lineThrough"):
                                 continue
 
@@ -760,18 +783,19 @@ class FlashScoreScraper:
                                     "Odd_X2": odd_x2,
                                 }
                             )
-                    except:
+                    except Exception:
                         continue
 
+            # Save the data under the Double Chance (DC) key
             data["Odds_DC_FT"] = dc_data
 
         except Exception as e:
-            pass  # Erro tratado no nível superior
+            print(f"Error extracting DC FT: {e}")
 
         return data
-
+    
     def extract_odds_cs_ft(self, match_id, data):
-        """Extrai odds Correct Score Full Time - TODOS os placares"""
+        """Extracts Correct Score Full Time odds - ALL scores."""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
@@ -786,26 +810,23 @@ class FlashScoreScraper:
                 EC.visibility_of_element_located((By.CSS_SELECTOR, "div.ui-table"))
             )
 
-            # Clica em "Show more" se existir
+            # Click "Show more" button to expand all scores if it exists
             try:
                 show_more = self.driver.find_element(
                     By.CSS_SELECTOR, "a.showMore__text"
                 )
                 show_more.click()
-                time.sleep(1)
-            except:
+                time.sleep(1) # Small pause to allow the DOM to render new rows
+            except Exception:
                 pass
 
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-
-            # NOVA ESTRUTURA: pega todas as linhas (ui-table__row)
             rows = soup.select("div.ui-table__row")
 
             cs_data = {}
 
-            # Cada linha tem: bookmaker + score + 1 odd
+            # Each row contains: bookmaker + score text + 1 odd
             for row in rows:
-                # Bookmaker
                 bookmaker_elem = row.select_one("div.wcl-bookmakerLogo_4IUU0 a img")
                 if not bookmaker_elem:
                     continue
@@ -814,7 +835,7 @@ class FlashScoreScraper:
                     bookmaker_elem.get("title") or bookmaker_elem.get("alt", "")
                 ).strip()
 
-                # Score
+                # Extract the score string (e.g., "1:0", "2:2")
                 score_elem = row.select_one("span.wcl-oddsValue_jvPMg")
                 if not score_elem:
                     continue
@@ -823,13 +844,13 @@ class FlashScoreScraper:
                 if ":" not in score:
                     continue
 
-                # Odd (apenas 1 para CS)
+                # Correct score rows only have 1 odd per line
                 odds_cells = row.select("a.oddsCell__odd")
                 if not odds_cells:
                     continue
 
                 try:
-                    # Ignora odds canceladas
+                    # Ignore cancelled odds
                     if odds_cells[0].select("span.oddsCell__lineThrough"):
                         continue
 
@@ -837,25 +858,26 @@ class FlashScoreScraper:
                     if odd_span:
                         odd_value = float(odd_span.text.strip().replace(",", "."))
 
-                        # Adiciona ao dicionário
+                        # Initialize the list for this specific score if it doesn't exist
                         if score not in cs_data:
                             cs_data[score] = []
 
+                        # Append the bookmaker's odd to the specific score category
                         cs_data[score].append(
                             {"Bookmaker": bookmaker, "Odd": odd_value}
                         )
-                except:
+                except Exception:
                     continue
 
             data["Odds_CS_FT"] = cs_data
 
         except Exception as e:
-            print(f"  ✗ Erro CS FT: {e}")
+            print(f"Error extracting CS FT: {e}")
 
         return data
 
     def extract_odds_asian_handicap_ft(self, match_id, data):
-        """Extrai odds Asian Handicap Full Time - TODAS AS LINHAS"""
+        """Extracts Asian Handicap Full Time odds - ALL LINES"""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
@@ -870,26 +892,23 @@ class FlashScoreScraper:
                 EC.visibility_of_element_located((By.CSS_SELECTOR, "div.ui-table"))
             )
 
-            # Clica em "Show more" se existir
+            # Click "Show more" button to expand all handicap lines
             try:
                 show_more = self.driver.find_element(
                     By.CSS_SELECTOR, "a.showMore__text"
                 )
                 show_more.click()
                 time.sleep(1)
-            except:
+            except Exception:
                 pass
 
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-
-            # NOVA ESTRUTURA: pega todas as linhas (ui-table__row)
             rows = soup.select("div.ui-table__row")
 
             ah_data = {}
 
-            # Cada linha tem: bookmaker + line + 2 odds (Home, Away)
+            # Each row contains: bookmaker + handicap line + 2 odds (Home, Away)
             for row in rows:
-                # Bookmaker
                 bookmaker_elem = row.select_one("div.wcl-bookmakerLogo_4IUU0 a img")
                 if not bookmaker_elem:
                     continue
@@ -898,7 +917,7 @@ class FlashScoreScraper:
                     bookmaker_elem.get("title") or bookmaker_elem.get("alt", "")
                 ).strip()
 
-                # Line
+                # Extract the handicap line (e.g., "-1.5", "+0.5", "0")
                 line_elem = row.select_one("span.wcl-oddsValue_jvPMg")
                 if not line_elem:
                     continue
@@ -909,7 +928,6 @@ class FlashScoreScraper:
 
                 line_key = f"AH_{line}"
 
-                # Odds (2 para AH: Home, Away)
                 odds_cells = row.select("a.oddsCell__odd")
                 if len(odds_cells) < 2:
                     continue
@@ -918,37 +936,38 @@ class FlashScoreScraper:
                     home_odd = None
                     away_odd = None
 
-                    # Home odd (primeira célula)
+                    # Parse Home odd (First column)
                     if not odds_cells[0].select("span.oddsCell__lineThrough"):
                         home_span = odds_cells[0].select_one("span")
                         if home_span:
                             home_odd = float(home_span.text.strip().replace(",", "."))
 
-                    # Away odd (segunda célula)
+                    # Parse Away odd (Second column)
                     if not odds_cells[1].select("span.oddsCell__lineThrough"):
                         away_span = odds_cells[1].select_one("span")
                         if away_span:
                             away_odd = float(away_span.text.strip().replace(",", "."))
 
                     if home_odd or away_odd:
+                        # Initialize the list for this specific handicap line
                         if line_key not in ah_data:
                             ah_data[line_key] = []
 
                         ah_data[line_key].append(
                             {"Bookmaker": bookmaker, "Home": home_odd, "Away": away_odd}
                         )
-                except:
+                except Exception:
                     continue
 
             data["Odds_AH_FT"] = ah_data
 
         except Exception as e:
-            print(f"  ✗ Erro AH FT: {e}")
+            print(f"Error extracting AH FT: {e}")
 
         return data
 
     def extract_odds_european_handicap_ft(self, match_id, data):
-        """Extrai odds European Handicap Full Time - TODAS AS LINHAS"""
+        """Extracts European Handicap Full Time odds - ALL LINES"""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
@@ -963,26 +982,23 @@ class FlashScoreScraper:
                 EC.visibility_of_element_located((By.CSS_SELECTOR, "div.ui-table"))
             )
 
-            # Clica em "Show more" se existir
+            # Click "Show more" button to expand all handicap lines
             try:
                 show_more = self.driver.find_element(
                     By.CSS_SELECTOR, "a.showMore__text"
                 )
                 show_more.click()
                 time.sleep(1)
-            except:
+            except Exception:
                 pass
 
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-
-            # NOVA ESTRUTURA: pega todas as linhas (ui-table__row)
             rows = soup.select("div.ui-table__row")
 
             eh_data = {}
 
-            # Cada linha tem: bookmaker + line + 3 odds (Home, Draw, Away)
+            # Each row contains: bookmaker + line + 3 odds (Home, Draw, Away)
             for row in rows:
-                # Bookmaker
                 bookmaker_elem = row.select_one("div.wcl-bookmakerLogo_4IUU0 a img")
                 if not bookmaker_elem:
                     continue
@@ -991,7 +1007,7 @@ class FlashScoreScraper:
                     bookmaker_elem.get("title") or bookmaker_elem.get("alt", "")
                 ).strip()
 
-                # Line
+                # Extract the European Handicap line (e.g., "-1", "+2")
                 line_elem = row.select_one("span.wcl-oddsValue_jvPMg")
                 if not line_elem:
                     continue
@@ -1002,7 +1018,7 @@ class FlashScoreScraper:
 
                 line_key = f"EH_{line}"
 
-                # Odds (3 para EH: Home, Draw, Away)
+                # European Handicap always has 3 options (Home, Draw, Away)
                 odds_cells = row.select("a.oddsCell__odd")
                 if len(odds_cells) < 3:
                     continue
@@ -1012,19 +1028,19 @@ class FlashScoreScraper:
                     draw_odd = None
                     away_odd = None
 
-                    # Home odd (primeira célula)
+                    # Parse Home odd (First column)
                     if not odds_cells[0].select("span.oddsCell__lineThrough"):
                         home_span = odds_cells[0].select_one("span")
                         if home_span:
                             home_odd = float(home_span.text.strip().replace(",", "."))
 
-                    # Draw odd (segunda célula)
+                    # Parse Draw odd (Second column)
                     if not odds_cells[1].select("span.oddsCell__lineThrough"):
                         draw_span = odds_cells[1].select_one("span")
                         if draw_span:
                             draw_odd = float(draw_span.text.strip().replace(",", "."))
 
-                    # Away odd (terceira célula)
+                    # Parse Away odd (Third column)
                     if not odds_cells[2].select("span.oddsCell__lineThrough"):
                         away_span = odds_cells[2].select_one("span")
                         if away_span:
@@ -1042,18 +1058,18 @@ class FlashScoreScraper:
                                 "Away": away_odd,
                             }
                         )
-                except:
+                except Exception:
                     continue
 
             data["Odds_EH_FT"] = eh_data
 
         except Exception as e:
-            print(f"  ✗ Erro EH FT: {e}")
+            print(f"Error extracting EH FT: {e}")
 
         return data
 
     def extract_odds_ou_ht(self, match_id, data):
-        """Extrai odds Over/Under Half Time - TODAS AS LINHAS"""
+        """Extracts Over/Under Half Time odds - ALL LINES"""
         home_slug = data.get("Home_Slug", "")
         away_slug = data.get("Away_Slug", "")
 
@@ -1068,19 +1084,19 @@ class FlashScoreScraper:
                 EC.visibility_of_element_located((By.CSS_SELECTOR, "div.ui-table"))
             )
 
-            # Clica em "Show more" se existir
+            # Click "Show more" button if it exists
             try:
                 show_more = self.driver.find_element(
                     By.CSS_SELECTOR, "a.showMore__text"
                 )
                 show_more.click()
                 time.sleep(1)
-            except:
+            except Exception:
                 pass
 
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
 
-            # Pega TODAS as linhas (span.wcl-oddsValue_jvPMg) e TODAS as tabelas
+            # Extract all line headers and ALL distinct tables
             line_spans = soup.select("span.wcl-oddsValue_jvPMg")
             tables = soup.select("div.ui-table.oddsCell__odds")
 
@@ -1089,24 +1105,26 @@ class FlashScoreScraper:
             line_to_table = {}
             table_idx = 0
 
-            # Mapeia linhas únicas para suas tabelas
+            # Map unique lines (e.g., 0.5, 1.5) to their corresponding tables
             for line_span in line_spans:
                 line_text = line_span.text.strip()
+                
+                # Verify if the text is a valid number (e.g., "1.5")
                 if line_text and line_text.replace(".", "").replace(",", "").isdigit():
                     try:
                         line_value = float(line_text.replace(",", "."))
 
-                        # Só processa cada linha uma vez
+                        # Process each line only once
                         if line_value not in seen_lines:
                             seen_lines.add(line_value)
 
                             if table_idx < len(tables):
                                 line_to_table[line_value] = tables[table_idx]
                                 table_idx += 1
-                    except:
+                    except Exception:
                         continue
 
-            # Processa cada linha única
+            # Process each unique table separately
             for line_value in sorted(seen_lines):
                 if line_value not in line_to_table:
                     continue
@@ -1115,7 +1133,7 @@ class FlashScoreScraper:
                 line_key = f"OU_{line_value}"
                 ou_data[line_key] = []
 
-                # Extrai odds desta tabela
+                # Extract odds specifically from this mapped table
                 rows = table.select("div.ui-table__row")
                 for row in rows:
                     bookmaker_elem = row.select_one("div.wcl-bookmakerLogo_4IUU0 a img")
@@ -1129,10 +1147,9 @@ class FlashScoreScraper:
 
                     if len(odds_cells) >= 2:
                         try:
-                            # Ignora odds canceladas
-                            if odds_cells[0].select("span.oddsCell__lineThrough"):
-                                continue
-                            if odds_cells[1].select("span.oddsCell__lineThrough"):
+                            # Ignore cancelled odds
+                            if odds_cells[0].select("span.oddsCell__lineThrough") or \
+                               odds_cells[1].select("span.oddsCell__lineThrough"):
                                 continue
 
                             over_span = odds_cells[0].select_one("span")
@@ -1149,102 +1166,102 @@ class FlashScoreScraper:
                                         "Under": under,
                                     }
                                 )
-                        except:
+                        except Exception:
                             continue
 
             data["Odds_OU_HT"] = ou_data
 
         except Exception as e:
-            pass  # Erro tratado no nível superior
+            print(f"Error occurred while scraping match {match_id}: {e}")
+            pass
 
         return data
 
     def scrape_match(self, match_id):
-        """Scraping completo de um jogo"""
-        print(f"\n🎯 Processando {match_id}...")
+        """Complete match scraping orchestration"""
+        print(f"\nProcessing match ID: {match_id}...")
 
-        # 1. Info básica + slugs
+        # 1. Basic Info & Slugs
         data = self.get_match_basic_info(match_id)
 
+        # Fail-fast: If critical data is missing, abort early
         if not data.get("Home_Slug") or not data.get("Away_Slug"):
-            print(f"  ✗ Slugs não encontrados, pulando...")
+            print("Slugs not found, skipping match...")
             return None
 
-        print(f"  ✓ {data.get('Home', '?')} vs {data.get('Away', '?')}")
+        print(f"{data.get('Home', '?')} vs {data.get('Away', '?')}")
 
         # 2. Odds 1X2 FT
         data = self.extract_odds_1x2_ft(match_id, data)
         if data.get("Odds_1X2_FT"):
-            print(f"  ✓ 1X2 FT: {len(data['Odds_1X2_FT'])} casas")
+            print(f" - 1X2 FT: {len(data['Odds_1X2_FT'])} bookmakers")
 
         # 3. Odds 1X2 HT
         data = self.extract_odds_1x2_ht(match_id, data)
         if data.get("Odds_1X2_HT"):
-            print(f"  ✓ 1X2 HT: {len(data['Odds_1X2_HT'])} casas")
+            print(f" - 1X2 HT: {len(data['Odds_1X2_HT'])} bookmakers")
 
-        # 4. Odds Over/Under FT (TODAS as linhas)
+        # 4. Odds Over/Under FT (ALL lines)
         data = self.extract_odds_ou_ft(match_id, data)
         if data.get("Odds_OU_FT"):
             total_lines = len(data["Odds_OU_FT"])
             total_bookmakers = sum(len(odds) for odds in data["Odds_OU_FT"].values())
-            print(f"  ✓ O/U FT: {total_lines} linhas, {total_bookmakers} odds")
+            print(f" - O/U FT: {total_lines} lines, {total_bookmakers} odds")
 
-        # 5. Odds Over/Under HT (TODAS as linhas)
+        # 5. Odds Over/Under HT (ALL lines)
         data = self.extract_odds_ou_ht(match_id, data)
         if data.get("Odds_OU_HT"):
             total_lines = len(data["Odds_OU_HT"])
             total_bookmakers = sum(len(odds) for odds in data["Odds_OU_HT"].values())
-            print(f"  ✓ O/U HT: {total_lines} linhas, {total_bookmakers} odds")
+            print(f"- O/U HT: {total_lines} lines, {total_bookmakers} odds")
 
         # 6. Odds BTTS FT
         data = self.extract_odds_btts_ft(match_id, data)
         if data.get("Odds_BTTS_FT"):
-            print(f"  ✓ BTTS FT: {len(data['Odds_BTTS_FT'])} casas")
+            print(f" - BTTS FT: {len(data['Odds_BTTS_FT'])} bookmakers")
 
         # 7. Odds Double Chance FT
         data = self.extract_odds_dc_ft(match_id, data)
         if data.get("Odds_DC_FT"):
-            print(f"  ✓ DC FT: {len(data['Odds_DC_FT'])} casas")
+            print(f" - DC FT: {len(data['Odds_DC_FT'])} bookmakers")
 
         # 8. Odds Correct Score FT
         data = self.extract_odds_cs_ft(match_id, data)
         if data.get("Odds_CS_FT"):
             total_scores = len(data["Odds_CS_FT"])
             total_cs_odds = sum(len(odds) for odds in data["Odds_CS_FT"].values())
-            print(f"  ✓ CS FT: {total_scores} placares, {total_cs_odds} odds")
+            print(f" - CS FT: {total_scores} scores, {total_cs_odds} odds")
 
         # 9. Odds Asian Handicap FT
         data = self.extract_odds_asian_handicap_ft(match_id, data)
         if data.get("Odds_AH_FT"):
             total_lines = len(data["Odds_AH_FT"])
             total_ah_odds = sum(len(odds) for odds in data["Odds_AH_FT"].values())
-            print(f"  ✓ Asian Handicap FT: {total_lines} linhas, {total_ah_odds} odds")
+            print(f" - Asian Handicap FT: {total_lines} lines, {total_ah_odds} odds")
 
         # 10. Odds European Handicap FT
         data = self.extract_odds_european_handicap_ft(match_id, data)
         if data.get("Odds_EH_FT"):
             total_lines = len(data["Odds_EH_FT"])
             total_eh_odds = sum(len(odds) for odds in data["Odds_EH_FT"].values())
-            print(
-                f"  ✓ European Handicap FT: {total_lines} linhas, {total_eh_odds} odds"
-            )
+            print(f" - European Handicap FT: {total_lines} lines, {total_eh_odds} odds")
 
-        # 11. Estatísticas FT
+        # 11. Statistics FT
         data = self.extract_statistics_ft(match_id, data)
         if data.get("Statistics_FT"):
-            print(f"  ✓ Stats FT: {len(data['Statistics_FT'])} métricas")
+            print(f" - Stats FT: {len(data['Statistics_FT'])} metrics")
 
-        # 10. Estatísticas HT (1º tempo)
+        # 12. Statistics HT (1st half)
         data = self.extract_statistics_ht(match_id, data)
         if data.get("Statistics_HT"):
-            print(f"  ✓ Stats HT: {len(data['Statistics_HT'])} métricas")
+            print(f" - Stats HT: {len(data['Statistics_HT'])} metrics")
 
-        # 11. Estatísticas 2T (2º tempo)
+        # 13. Statistics 2T (2nd half)
         data = self.extract_statistics_2t(match_id, data)
         if data.get("Statistics_2T"):
-            print(f"  ✓ Stats 2T: {len(data['Statistics_2T'])} métricas")
+            print(f" - Stats 2T: {len(data['Statistics_2T'])} metrics")
 
-        # 12. Placar e minutos dos gols (somente jogos passados)
+        # 14. Final Score and Goal Minutes (for past matches only)
         data = self.extract_goals_and_minutes(match_id, data)
         if data.get("Min_Goals_Home") is not None:
             total_goals = len(data.get("Min_Goals_Home", [])) + len(
@@ -1252,39 +1269,46 @@ class FlashScoreScraper:
             )
             if total_goals > 0:
                 print(
-                    f"  ✓ Gols: {len(data['Min_Goals_Home'])}x{len(data['Min_Goals_Away'])} - Minutos: {data['Min_Goals_Home']} x {data['Min_Goals_Away']}"
+                    f" - Goals: {len(data['Min_Goals_Home'])}x{len(data['Min_Goals_Away'])} - "
+                    f"Minutes: {data['Min_Goals_Home']} x {data['Min_Goals_Away']}"
                 )
 
         return data
 
     def scrape_matches(self, match_ids):
-        """Scraping de múltiplos jogos com progresso"""
+        """Scrapes multiple matches with a progress bar and incremental saving"""
         self.accept_cookies()
 
-        for match_id in tqdm(match_ids, desc="Scraping"):
+        # tqdm creates a nice progress bar in the terminal
+        for match_id in tqdm(match_ids, desc="Scraping Matches"):
             result = self.scrape_match(match_id)
             if result:
                 self.results.append(result)
 
-                # Salva incremental
-                with open("flashscore_v2_incremental.json", "w", encoding="utf-8") as f:
+                # Incremental save (Defensive Programming)
+                # Saves to the output folder we created earlier
+                incremental_path = "data/output/flashscore_incremental.json"
+                with open(incremental_path, "w", encoding="utf-8") as f:
                     json.dump(self.results, f, ensure_ascii=False, indent=2)
 
         return self.results
 
-    def save_results(self, filename="flashscore_v2_results"):
-        """to JSON file"""
-        # 1. save to JSON
+    def save_results(self, filename="data/output/flashscore_results"):
+        """Saves the scraped data to a comprehensive JSON and a flattened CSV file"""
+        # 1. Save complete nested data to JSON
         json_file = f"{filename}.json"
         with open(json_file, "w", encoding="utf-8") as f:
             json.dump(self.results, f, ensure_ascii=False, indent=2)
 
-        print(f"\nSaved: {json_file}")
+        print(f"\nSaved comprehensive JSON: {json_file}")
 
-        # CSV
+        # 2. Export a flattened version to CSV for tabular analysis (e.g., Pandas/Shiny)
         try:
+            import pandas as pd
             df_simple = []
+            
             for match in self.results:
+                # Extract basic metrics
                 row = {
                     "Id": match.get("Id"),
                     "Date": match.get("Date"),
@@ -1300,6 +1324,7 @@ class FlashScoreScraper:
                     "Best_Odd_2_FT": match.get("Best_Odd_2_FT"),
                 }
 
+                # Flatten Full Time Statistics dynamically
                 stats_ft = match.get("Statistics_FT", {})
                 for stat_name, values in stats_ft.items():
                     row[f"Home_{stat_name}"] = values.get("Home")
@@ -1307,32 +1332,35 @@ class FlashScoreScraper:
 
                 df_simple.append(row)
 
+            # Convert dictionary list to a Pandas DataFrame and save to CSV
             df = pd.DataFrame(df_simple)
             csv_file = f"{filename}.csv"
             df.to_csv(csv_file, index=False, encoding="utf-8-sig")
-            print(f"Saved: {csv_file}")
+            print(f"Saved flattened CSV: {csv_file}")
+
         except Exception as e:
-            print(f"Error during generating csv file: {e}")
+            print(f"Error generating CSV file: {e}")
 
     def close(self):
-        """Fecha o driver"""
+        """Safely closes the Selenium WebDriver to free up memory."""
         self.driver.quit()
 
 
+# Main block to run the scraper
 if __name__ == "__main__":
-    # Exemplo de uso
+    # Initialize the scraper - headless=True
     scraper = FlashScoreScraper(headless=True)
 
     try:
-        # IDs de exemplo (substitua pelos seus)
         match_ids = [
-            "tYxjGH7i",  # Exemplo
+            "Ei2ZTQz9", 
         ]
 
         results = scraper.scrape_matches(match_ids)
         scraper.save_results()
 
-        print(f"\n✅ Total: {len(results)} jogos processados")
+        print(f"\nScraping finished! Total: {len(results)} matches processed.")
 
     finally:
+        # Closing scraper
         scraper.close()
