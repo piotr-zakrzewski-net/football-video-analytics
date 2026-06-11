@@ -27,3 +27,15 @@ data/stats/*.csv
 
 # cache form tests
 .pytest_cache/
+
+# Ignoruj ciężkie dane treningowe i filmy
+data/
+
+# Ignoruj śmieci po treningu i wykresy
+runs/
+
+# Ignoruj domyślne modele YOLO (pobiorą się same)
+*.pt
+
+# WYJĄTEK: Chcemy śledzić NASZ wytrenowany model w folderze models!
+!models/*.pt
