@@ -11,3 +11,5 @@ webdriver-manager
 beautifulsoup4
 tqdm
 roboflow
+supervision
+trackers
