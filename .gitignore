@@ -9,6 +9,7 @@ env/
 
 # Python cache
 __pycache__/
+*.pkl
 *.pyc
 *.pyo
 
@@ -28,14 +29,14 @@ data/stats/*.csv
 # cache form tests
 .pytest_cache/
 
-# Ignoruj ciężkie dane treningowe i filmy
+# data
 data/
 
-# Ignoruj śmieci po treningu i wykresy
+# runs
 runs/
 
-# Ignoruj domyślne modele YOLO (pobiorą się same)
+# YOLO models
 *.pt
 
-# WYJĄTEK: Chcemy śledzić NASZ wytrenowany model w folderze models!
+# exception: our models
 !models/*.pt

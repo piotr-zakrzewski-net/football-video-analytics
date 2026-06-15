@@ -5,6 +5,8 @@ import supervision as sv
 import pickle
 import os
 import sys
+import numpy as np
+import pandas as pd
 sys.path.append('../')
 from utils import get_center_of_bbox, get_bbox_width
 
@@ -13,6 +15,17 @@ class Tracker:
         self.model = YOLO(model_path)
         self.tracker = ByteTrackTracker()
 
+    def interpolate_ball_positions(self, ball_positions):
+        ball_positions = [x.get(1, {}).get('bbox', []) for x in ball_positions]
+        df_ball_positions = pd.DataFrame(ball_positions, columns=['x1', 'y1', 'x2', 'y2'])
+
+        # Interpolate missing values
+        df_ball_positions = df_ball_positions.interpolate()
+        df_ball_positions = df_ball_positions.bfill()
+
+        ball_positions = [{1: {'bbox': x}} for x in df_ball_positions.to_numpy().tolist()]
+
+        return ball_positions
 
     def detect_frames(self, frames):
         batch_size = 20
@@ -21,7 +34,6 @@ class Tracker:
             detections_batch = self.model.predict(frames[i:i+batch_size], conf=0.1)
             detections += detections_batch
         return detections
-
 
     def get_object_tracks(self, frames, read_from_stub=False, stub_path=None):    
 
@@ -81,7 +93,6 @@ class Tracker:
     
         return tracks
     
-
     def draw_ellipse(self, frame, bbox, color, track_id=None):
         y2 = int(bbox[3])
 
@@ -98,9 +109,72 @@ class Tracker:
                           thickness=2,
                           lineType=cv2.LINE_4)
         
+        # Rectangle for track_id
+        rectangle_width = 40
+        rectangle_height = 20
+        x_1_rect = x_center - rectangle_width // 2
+        x_2_rect = x_center + rectangle_width // 2
+        y_1_rect = (y2 - rectangle_height // 2) + 15
+        y_2_rect = (y2 + rectangle_height // 2) + 15
+
+        if track_id is not None:
+            cv2.rectangle(frame, (x_1_rect, y_1_rect), (x_2_rect, y_2_rect), color, cv2.FILLED)
+            
+            x_1_text = x_1_rect + 12
+            if track_id > 99:
+                x_1_text -= 10
+
+            cv2.putText(frame, 
+                        f"{track_id}", 
+                        (int(x_1_text), int(y_1_rect + 15)), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 
+                        0.6, 
+                        (0, 0, 0), 
+                        2)
+
+        return frame
+    
+    def draw_triangle(self, frame, bbox, color):
+        y = int(bbox[1])
+        x, _ = get_center_of_bbox(bbox)
+        
+        triangle_points = np.array(
+            [[x, y], [x - 10, y - 20], [x + 10, y - 20]])
+        cv2.drawContours(frame, [triangle_points], 0, color, cv2.FILLED)
+        cv2.drawContours(frame, [triangle_points], 0, (0,0,0), 2)
         return frame
 
-    def draw_annotations(self, video_frames, tracks):
+    def draw_team_ball_control(self, frame, frame_num, team_ball_control):
+        team_ball_control_till_frame = team_ball_control[:frame_num + 1]
+        team_1_num_frames = team_ball_control_till_frame[team_ball_control_till_frame==1].shape[0]
+        team_2_num_frames = team_ball_control_till_frame[team_ball_control_till_frame==2].shape[0]
+        
+        total_frames = team_1_num_frames + team_2_num_frames
+        if total_frames == 0:
+            team_1 = 0.0
+            team_2 = 0.0
+        else:
+            team_1 = team_1_num_frames / total_frames
+            team_2 = team_2_num_frames / total_frames
+
+        text_1 = f"Team 1 Ball Possession: {team_1*100:.2f}%"
+        text_2 = f"Team 2 Ball Possession: {team_2*100:.2f}%"
+
+        # Left up corner
+        rect_start = (40, 40)
+        rect_end = (620, 140)
+
+        overlay = frame.copy()
+        cv2.rectangle(overlay, rect_start, rect_end, (255, 255, 255), cv2.FILLED)
+        alpha = 0.4
+        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+        cv2.putText(frame, text_1, (60, 85), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 3)
+        cv2.putText(frame, text_2, (60, 125), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 3)
+
+        return frame
+
+    def draw_annotations(self, video_frames, tracks, team_ball_control):
         output_video_frames = []
         for frame_num, frame in enumerate(video_frames):
             frame = frame.copy()
@@ -111,11 +185,24 @@ class Tracker:
 
             # Draw Players
             for track_id, player in player_dict.items():
-                frame = self.draw_ellipse(frame, player["bbox"], (0, 0, 255), track_id)
+                color = player.get("team_color", (0, 0, 255))
+                frame = self.draw_ellipse(frame, player["bbox"], color, track_id)
+
+                if player.get('has_ball', False):
+                    frame = self.draw_triangle(frame, player['bbox'], (0,0,255))
 
             # Draw Referees
             for _, referee in referee_dict.items():
                 frame = self.draw_ellipse(frame, referee["bbox"], (0, 255, 255))
 
+            # Draw Ball
+            for _, ball in ball_dict.items():
+                frame = self.draw_triangle(frame, ball["bbox"], (0, 255, 0))    
+
+
+            # Draw Team Ball Control
+            frame = self.draw_team_ball_control(frame, frame_num, team_ball_control)
+            
             output_video_frames.append(frame)
+            
         return output_video_frames
