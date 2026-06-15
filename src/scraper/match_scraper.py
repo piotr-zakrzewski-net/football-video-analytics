@@ -1,4 +1,5 @@
 import json
+import os
 import time
 import platform
 from datetime import datetime
@@ -20,6 +21,30 @@ class FlashScoreScraper:
         self.base_url = "https://www.flashscore.com"
         self.driver = self.setup_driver(headless)
         self.results = []
+
+    def scrape_from_url(self, url):
+        # Scrape ID from URL
+        import re
+
+        match_id = re.search(r"mid=([a-zA-Z0-9]+)", url)
+
+        if match_id:
+            match_id = match_id.group(1)
+        else:
+            try:
+                match_id = url.split("/match/")[1].split("/")[0]
+            except:
+                print("Process went wrong during url scraping!")
+                return None
+
+        print(f"Found ID match: {match_id}")
+
+        self.accept_cookies()
+        result = self.scrape_match(match_id)
+        if result:
+            self.results = [result]
+            return result
+        return None
 
     def setup_driver(self, headless=True):
         """Configures the Chrome WebDriver with anit-bot measures"""
@@ -523,7 +548,7 @@ class FlashScoreScraper:
                                 return int(value_clean)
                             except ValueError:
                                 return value_clean
-                    
+
                     # Store in dict
                     stats_dict[stat_name] = {
                         "Home": convert_value(home_value),
@@ -634,7 +659,7 @@ class FlashScoreScraper:
 
                 except Exception:
                     continue
-            
+
             # Save strictly to the Half Time specific key
             data["Odds_1X2_HT"] = odds_data
 
@@ -685,9 +710,10 @@ class FlashScoreScraper:
                 # BTTS market always has two options: Yes and No
                 if len(odds_cells) >= 2:
                     try:
-                        # CRITICAL FIX: Skip cancelled odds 
-                        if odds_cells[0].select("span.oddsCell__lineThrough") or \
-                           odds_cells[1].select("span.oddsCell__lineThrough"):
+                        # CRITICAL FIX: Skip cancelled odds
+                        if odds_cells[0].select(
+                            "span.oddsCell__lineThrough"
+                        ) or odds_cells[1].select("span.oddsCell__lineThrough"):
                             continue
 
                         yes_span = odds_cells[0].select_one("span")
@@ -793,7 +819,7 @@ class FlashScoreScraper:
             print(f"Error extracting DC FT: {e}")
 
         return data
-    
+
     def extract_odds_cs_ft(self, match_id, data):
         """Extracts Correct Score Full Time odds - ALL scores."""
         home_slug = data.get("Home_Slug", "")
@@ -816,7 +842,7 @@ class FlashScoreScraper:
                     By.CSS_SELECTOR, "a.showMore__text"
                 )
                 show_more.click()
-                time.sleep(1) # Small pause to allow the DOM to render new rows
+                time.sleep(1)  # Small pause to allow the DOM to render new rows
             except Exception:
                 pass
 
@@ -1108,7 +1134,7 @@ class FlashScoreScraper:
             # Map unique lines (e.g., 0.5, 1.5) to their corresponding tables
             for line_span in line_spans:
                 line_text = line_span.text.strip()
-                
+
                 # Verify if the text is a valid number (e.g., "1.5")
                 if line_text and line_text.replace(".", "").replace(",", "").isdigit():
                     try:
@@ -1148,8 +1174,9 @@ class FlashScoreScraper:
                     if len(odds_cells) >= 2:
                         try:
                             # Ignore cancelled odds
-                            if odds_cells[0].select("span.oddsCell__lineThrough") or \
-                               odds_cells[1].select("span.oddsCell__lineThrough"):
+                            if odds_cells[0].select(
+                                "span.oddsCell__lineThrough"
+                            ) or odds_cells[1].select("span.oddsCell__lineThrough"):
                                 continue
 
                             over_span = odds_cells[0].select_one("span")
@@ -1294,21 +1321,37 @@ class FlashScoreScraper:
         return self.results
 
     def save_results(self, filename="data/output/flashscore_results"):
-        """Saves the scraped data to a comprehensive JSON and a flattened CSV file"""
-        # 1. Save complete nested data to JSON
+        """Saves the scraped data to a comprehensive JSON and a flattened CSV file."""
         json_file = f"{filename}.json"
+        existing_matches = []
+        if os.path.exists(json_file) and os.path.getsize(json_file) > 0:
+            try:
+                with open(json_file, encoding="utf-8") as f:
+                    existing_matches = json.load(f)
+                if not isinstance(existing_matches, list):
+                    existing_matches = []
+            except (json.JSONDecodeError, OSError):
+                existing_matches = []
+
+        merged_by_id = {
+            str(match.get("Id")): match
+            for match in existing_matches
+            if isinstance(match, dict) and match.get("Id")
+        }
+        for match in self.results:
+            if isinstance(match, dict) and match.get("Id"):
+                merged_by_id[str(match["Id"])] = match
+
+        self.results = list(merged_by_id.values())
+
         with open(json_file, "w", encoding="utf-8") as f:
             json.dump(self.results, f, ensure_ascii=False, indent=2)
 
-        print(f"\nSaved comprehensive JSON: {json_file}")
+        print(f"\nSaved comprehensive JSON: {json_file} ({len(self.results)} matches)")
 
-        # 2. Export a flattened version to CSV for tabular analysis (e.g., Pandas/Shiny)
         try:
-            import pandas as pd
             df_simple = []
-            
             for match in self.results:
-                # Extract basic metrics
                 row = {
                     "Id": match.get("Id"),
                     "Date": match.get("Date"),
@@ -1324,7 +1367,6 @@ class FlashScoreScraper:
                     "Best_Odd_2_FT": match.get("Best_Odd_2_FT"),
                 }
 
-                # Flatten Full Time Statistics dynamically
                 stats_ft = match.get("Statistics_FT", {})
                 for stat_name, values in stats_ft.items():
                     row[f"Home_{stat_name}"] = values.get("Home")
@@ -1332,7 +1374,6 @@ class FlashScoreScraper:
 
                 df_simple.append(row)
 
-            # Convert dictionary list to a Pandas DataFrame and save to CSV
             df = pd.DataFrame(df_simple)
             csv_file = f"{filename}.csv"
             df.to_csv(csv_file, index=False, encoding="utf-8-sig")
@@ -1352,9 +1393,7 @@ if __name__ == "__main__":
     scraper = FlashScoreScraper(headless=True)
 
     try:
-        match_ids = [
-            "Ei2ZTQz9", 
-        ]
+        match_ids = ["Ei2ZTQz9", "EJZRaQ15", "hf989Iwo"]
 
         results = scraper.scrape_matches(match_ids)
         scraper.save_results()
