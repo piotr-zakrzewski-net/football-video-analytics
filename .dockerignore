@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Dane i artefakty
+data/
+*.pkl
+*.mp4
+*.pt
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Git / test cache
+.git/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Windows codec (lokalny)
+openh264-1.8.0-win64.dll
+
+# Selenium / Chrome
+chromedriver.exe
+*.log
