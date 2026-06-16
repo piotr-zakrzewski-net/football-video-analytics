@@ -22,6 +22,10 @@ from src.services.tracking_stats_service import (
     load_tracking_stub,
 )
 
+import shutil
+import asyncio
+from main_process import process_video
+
 
 def server(input, output, session):
     data_version = reactive.Value(0)
@@ -94,6 +98,8 @@ def server(input, output, session):
     def run_scraper():
         url = input.url_input()
         print(f"[SCRAPER] Przycisk 'Pobierz dane' kliknięty. URL: {url!r}")
+
+        os.system("taskkill /f /im chromedriver.exe /T >nul 2>&1")
 
         if not url or not url.strip():
             print("[SCRAPER] Brak URL — przerywam.")
@@ -357,10 +363,77 @@ def server(input, output, session):
         return ui.HTML(pio.to_html(fig, full_html=False))
 
     @reactive.Effect
-    def update_video_list():
+    @reactive.event(input.btn_process_video)
+    async def handle_video_processing():
+        file_info = input.video_upload()
+
+        if not file_info:
+            ui.notification_show("Najpierw wybierz plik .mp4 do wgrania!", type="warning")
+            return
+
+        # Pobranie ścieżki tymczasowej z Shiny
+        uploaded_file_path = file_info[0]["datapath"]
+        original_file_name = file_info[0]["name"]
+
+        # Przygotowanie docelowego miejsca w data/input_videos
+        input_dir = OUTPUT_DIR.parent / "input_videos"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        target_path = input_dir / original_file_name
+
+        # Skopiowanie pliku na serwer
+        shutil.copy(uploaded_file_path, target_path)
+        print(f"[WIDEO] Wgrano plik: {original_file_name}")
+
+        with ui.Progress(min=0, max=1) as p:
+            p.set(message="Przetwarzanie AI w toku...", detail="To potrwa dłuższą chwilę.")
+            try:
+                # Uruchamiamy YOLO w tle, żeby nie zawiesić aplikacji
+                await asyncio.to_thread(process_video, original_file_name)
+                ui.notification_show(f"Zakończono procesowanie {original_file_name}!", type="message")
+                refresh_video_list()
+            except Exception as e:
+                print(f"[WIDEO] Błąd: {e}")
+                ui.notification_show(f"Wystąpił błąd: {e}", type="error")
+
+    @reactive.Effect
+    @reactive.event(input.btn_delete_video)
+    def delete_video():
+        selected_output = input.video_selector()
+        if not selected_output:
+            ui.notification_show("Wybierz nagranie do usunięcia.", type="warning")
+            return
+
+        # Wyciągamy bazową nazwę (np. z output_video_2.mp4 robimy video_2)
+        base_name = selected_output.replace("output_", "").replace(".mp4", "")
+
+        output_file = OUTPUT_DIR / selected_output
+        stub_processed = OUTPUT_DIR.parent / "stubs" / f"{base_name}_processed.pkl"
+        stub_raw = OUTPUT_DIR.parent / "stubs" / f"{base_name}_stub.pkl"
+        input_file = OUTPUT_DIR.parent / "input_videos" / f"{base_name}.mp4"
+
+        # Kasujemy pliki
+        deleted_any = False
+        for file_path in [output_file, stub_processed, stub_raw, input_file]:
+            if file_path.exists():
+                file_path.unlink()
+                deleted_any = True
+                print(f"[WIDEO] Usunięto: {file_path}")
+
+        if deleted_any:
+            ui.notification_show(f"Usunięto pomyślnie dane dla {base_name}.", type="message")
+            refresh_video_list()
+        else:
+            ui.notification_show("Nie znaleziono plików do usunięcia.", type="warning")
+
+    def refresh_video_list():
         if OUTPUT_DIR.exists():
             videos = sorted(f for f in os.listdir(OUTPUT_DIR) if f.endswith(".mp4"))
             ui.update_select("video_selector", choices=videos)
+
+    # A to wywoła ją tylko raz na start aplikacji:
+    @reactive.Effect
+    def auto_update_video_list():
+        refresh_video_list()
 
     @render.ui
     def dynamic_video_player():

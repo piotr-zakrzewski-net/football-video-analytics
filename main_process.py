@@ -8,11 +8,12 @@ from speed_and_distance_estimator import SpeedAndDistance_Estimator
 import cv2
 import numpy as np
 import pickle
+import sys
 
 
-def main():
+def process_video(video_name):
     # Read the input video
-    video_name = "video_2.mp4"
+    # video_name = "video_2.mp4"
     video_path = f"data/input_videos/{video_name}"
     stub_path = f"data/stubs/{video_name.split('.')[0]}_stub.pkl"
     output_path = f"data/output/output_{video_name.split('.')[0]}.mp4"
@@ -23,7 +24,7 @@ def main():
     model_path = "models/yolov8_football_entities_v1.pt"  # Path to the YOLO model
     tracker = Tracker(model_path)
     tracks = tracker.get_object_tracks(
-        video_frames, read_from_stub=True, stub_path=stub_path
+        video_frames, read_from_stub=False, stub_path=stub_path
     )
 
     # Get object positions
@@ -33,7 +34,7 @@ def main():
     camera_movement_estimator = CameraMovementEstimator(video_frames[0])
     camera_movement_per_frame = camera_movement_estimator.get_camera_movement(
         video_frames,
-        read_from_stub=True,
+        read_from_stub=False,
         stub_path="data/stubs/camera_movement_stub.pkl",
     )
     camera_movement_estimator.add_adjust_positions_to_tracks(
@@ -123,4 +124,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        process_video(sys.argv[1])
+    else:
+        print("Podaj nazwę pliku, np: python main_process.py video_2.mp4")

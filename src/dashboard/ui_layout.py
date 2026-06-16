@@ -148,7 +148,13 @@ app_ui = ui.page_navbar(
         "🤖 Analiza AI (Wideo)",
         ui.layout_sidebar(
             ui.sidebar(
-                ui.input_select("video_selector", "Wybierz nagranie:", choices=[]),
+                ui.h4("⚙️ Zarządzanie Wideo"),
+                ui.input_file("video_upload", "Wgraj nowe wideo (.mp4):", accept=[".mp4"], button_label="Wybierz plik",
+                              placeholder="Brak pliku"),
+                ui.input_action_button("btn_process_video", "Procesuj wgrane wideo", class_="btn-success"),
+                ui.hr(),
+                ui.input_select("video_selector", "Wybierz gotowe nagranie:", choices=[]),
+                ui.input_action_button("btn_delete_video", "Usuń wybrane wideo", class_="btn-danger mt-2"),
                 width=320,
             ),
             ui.layout_columns(
